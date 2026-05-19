@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sanity:
+    name: Sanity checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Unity project version file
+        run: |
+          test -f ProjectSettings/ProjectVersion.txt
+          grep -E '^m_EditorVersion: [0-9]+\.[0-9]+\.[0-9a-z]+' ProjectSettings/ProjectVersion.txt
+
+      - name: Verify required project files
+        run: |
+          test -f native_plugins_cmake/CMakeLists.txt
+          test -d Assets
+          test -f LICENSE.md
+          test -f README.md
+
+      - name: Check for stray merge conflict markers
+        run: |
+          if grep -RIn \
+              --exclude-dir=Library \
+              --exclude-dir=Logs \
+              --exclude-dir=Outputs \
+              --exclude-dir=plugin_build \
+              --exclude-dir=Packages \
+              --exclude-dir=.git \
+              -E '^(<{7}|={7}|>{7})( |$)' . ; then
+            echo "Merge conflict markers found"
+            exit 1
+          fi
+
+      - name: Check .meta files are paired with assets
+        run: |
+          # Every .meta file under Assets/ should have a matching asset
+          # (file or directory) next to it. Orphan .meta files cause Unity
+          # to spam warnings.
+          missing=0
+          while IFS= read -r meta; do
+            target="${meta%.meta}"
+            if [ ! -e "$target" ]; then
+              echo "Orphan meta: $meta"
+              missing=$((missing+1))
+            fi
+          done < <(find Assets -name '*.meta')
+          if [ "$missing" -gt 0 ]; then
+            echo "Found $missing orphan .meta file(s)"
+            exit 1
+          fi
